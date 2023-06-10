@@ -32,6 +32,7 @@ from .lists import (
     BaseListVariable,
     ListIteratorVariable,
     ListVariable,
+    SetVariable,
     SizeVariable,
     TupleIteratorVariable,
     TupleVariable,
@@ -63,7 +64,6 @@ class BuiltinVariable(VariableTracker):
             pow,
             repr,
             round,
-            set,
             str,
             str.format,
             sum,
@@ -769,6 +769,7 @@ class BuiltinVariable(VariableTracker):
     call_iter = _call_iter_tuple_list
     call_tuple = _call_iter_tuple_list
     call_list = _call_iter_tuple_list
+    call_set = _call_iter_tuple_list
 
     @staticmethod
     def is_supported_call_dict_arg(tx, arg):
@@ -1248,6 +1249,11 @@ class BuiltinVariable(VariableTracker):
             if not type(left) == type(right):  # Mismatch in BaseListVariable subclasses
                 _unimplemented()
             return BaseListVariable.list_compare(tx, op, left, right)
+
+        if isinstance(left, SetVariable):
+            if not type(left) == type(right):  # Mismatch in BaseListVariable subclasses
+                _unimplemented()
+            return ConstantVariable(op(left._underlying_items, right._underlying_items))
 
         if isinstance(left, TensorVariable):
             from .builder import wrap_fx_proxy
