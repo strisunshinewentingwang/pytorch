@@ -102,9 +102,9 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: main
+          ref: copy_mkl_windows
           submodules: recursive
-          repository: pytorch/builder
+          repository: mantaionut/builder
           path: builder
           quiet-checkout: true
       - name: Clean pytorch/builder checkout
@@ -452,9 +452,9 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: main
+          ref: copy_mkl_windows
           submodules: recursive
-          repository: pytorch/builder
+          repository: mantaionut/builder
           path: builder
           quiet-checkout: true
       - name: Clean pytorch/builder checkout
