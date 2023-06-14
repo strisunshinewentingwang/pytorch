@@ -75,6 +75,8 @@ SKIP = {
     "fambench_xlmr",
     # TIMEOUT, https://github.com/pytorch/pytorch/issues/98467
     "tacotron2",
+    # https://github.com/pytorch/benchmark/pull/1725
+    "torchrec_dlrm",
 }
 
 SKIP_FOR_CPU = {
@@ -97,6 +99,9 @@ SKIP_TRAIN = {
     "pyhpc_turbulent_kinetic_energy",
     "maml",
     "llama",
+    "doctr_det_predictor",
+    "doctr_reco_predictor",
+    "cm3leon_generate",
 }
 SKIP_TRAIN.update(DETECTRON2_MODELS)
 
