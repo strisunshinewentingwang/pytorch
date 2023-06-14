@@ -870,6 +870,35 @@ TORCH_IMPL_FUNC(index_add_cpu_out)
       return;
     }
 
+    // Fast path when dim = 0:
+    //
+    // `index_select` backward will call index_add, the fast path
+    // will do parallel on dim0 and vectorize on the rest of dims.
+    //
+    // the write conflicts when paralleling is handled by sorting indices first
+    // and then assign the indices with the same value to the same thread.
+    //
+    // the original impl will go sequential on dim0 and try to parallel/vectorize on
+    // the rest of dims, which is not performant for commonly used scenarios in Embedding.
+    //
+    if (dim == 0 && alpha.equal(1.0) && 0) {
+      // scatter_add supports only int64_t index
+      auto index_long = index_contig.to(kLong);
+
+      // expand `index` to same shape as `source`.
+      std::vector<int64_t> expanded_sizes = source.sizes().vec();
+      std::vector<int64_t> expanded_strides(expanded_sizes.size(), 0);
+      expanded_strides[0] = 1;
+      auto index_expanded = index_long.as_strided(expanded_sizes, expanded_strides);
+
+      if (can_use_expanded_index_path(result, dim, index_expanded, source, /*is_scatter_like*/true)) {
+        scatter_add_expanded_index_stub(self.device().type(), result, index_expanded, source);
+        return;
+      }
+    }
+
+    dim = maybe_wrap_dim(dim, self.dim());
+
     // When the slice of source or result is noncontiguous,
     // original index_add is slow as it uses add for the sliced tensor,
     // which is serial on index and parallel on sliced tensor to avoid write conflict.
@@ -880,12 +909,9 @@ TORCH_IMPL_FUNC(index_add_cpu_out)
     // avoid write conflict. scatter_add only need one parallel and the size of
     // outer dimensions is bigger to do parallel.
 
-    // TODO: When https://github.com/pytorch/pytorch/pull/82703 lands,
-    // using scatter_add will also get obvious speedup for the case dim == 0.
-    if ((result.stride(dim) == 1 || source.stride(dim) == 1) &&
+    if ((dim == 0 || dim == self.dim() - 1) &&
         // Data type of index should be long and alpha should be 1 to use scatter_add.
         alpha.equal(1.0) && index_contig.scalar_type() == ScalarType::Long &&
-        result.numel() > at::internal::GRAIN_SIZE &&
         // scatter_add does not support ComplexHalf
         source.scalar_type() != ScalarType::ComplexHalf &&
         result.scalar_type() != ScalarType::ComplexHalf) {
@@ -897,9 +923,6 @@ TORCH_IMPL_FUNC(index_add_cpu_out)
       // source.select(dim, i) is broadcast for result.select(dim, index_data[i])
       // The broadcast case is not applicable for scatter_add
       auto check_sizes = [&ep_sizes, &ep_strides, &numel](IntArrayRef a, IntArrayRef b, int64_t dim) -> bool {
-        if (a.size() != b.size()) {
-          return false;
-        }
 
         ep_sizes[dim] = numel;
         ep_strides[dim] = 1;
@@ -923,7 +946,6 @@ TORCH_IMPL_FUNC(index_add_cpu_out)
         result.scatter_add_(dim, ep_index, source);
         return;
       }
-
     }
 
     auto selfSlice = result.select(dim, 0);
