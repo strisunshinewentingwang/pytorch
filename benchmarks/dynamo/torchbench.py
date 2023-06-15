@@ -75,14 +75,14 @@ SKIP = {
     "fambench_xlmr",
     # TIMEOUT, https://github.com/pytorch/pytorch/issues/98467
     "tacotron2",
-    # https://github.com/pytorch/benchmark/pull/1725
-    "torchrec_dlrm",
+
 }
 
 SKIP_FOR_CPU = {
     "hf_T5_generate",  # OOMs
     "cm3leon_generate",  # model is CUDA only
     "nanogpt_generate",  # timeout
+    "torchrec_dlrm", # model is CUDA only
 }
 
 SKIP_FOR_CUDA = {
