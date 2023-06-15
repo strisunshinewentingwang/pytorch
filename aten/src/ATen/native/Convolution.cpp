@@ -1683,7 +1683,12 @@ at::Tensor _convolution(
   }
 
   if (k == 3 && !input.is_mkldnn() && !input.is_xpu()) {
-    output = view3d(output);
+    TORCH_CHECK(output.ndimension() == 4,
+           "expected 4D tensor, got tensor with ", output.ndimension(),
+           " dimensions instead");
+    std::array<int64_t, 3u> b{output.sizes()[0], output.sizes()[1], output.sizes()[3]};
+    output = output.view(b);
+    //output = view3d(output);
   }
 
   return output;
