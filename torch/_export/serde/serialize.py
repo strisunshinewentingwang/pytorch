@@ -49,6 +49,7 @@ __all__ = [
     "ExportedProgramDeserializer",
 ]
 
+from .upgrade import GraphModuleOpUpgrader
 
 log = logging.getLogger(__name__)
 
@@ -1035,10 +1036,12 @@ class ExportedProgramDeserializer:
         model_opset_version: Optional[Dict[str, int]] = serialized_exported_program.opset_version
         self._validate_model_opset_version(model_opset_version)
 
+        upgrader = GraphModuleOpUpgrader(self.expected_opset_version, model_opset_version)
+
         state_dict = deserialize_state_dict(serialized_state_dict)
         equality_constraints = deserialize_equality_constraints(serialized_exported_program.equality_constraints)
 
-        return ep.ExportedProgram(
+        exported_program = ep.ExportedProgram(
             state_dict,
             graph_module.graph,
             sig,
@@ -1047,6 +1050,7 @@ class ExportedProgramDeserializer:
             range_constraints,
             equality_constraints,
         )
+        return upgrader.upgrade(exported_program)
 
     def _validate_model_opset_version(self, model_opset_version: Optional[Dict[str, int]]):
         """Compare model_opset_version with expected_opset_version and raise error if we can't resolve the version
