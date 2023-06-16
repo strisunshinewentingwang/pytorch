@@ -255,7 +255,7 @@ def benchmark(
         if not timings:
             continue
 
-        timings = torch.tensor(timings).T
+        timings = torch.tensor(timings).double()
         q = torch.tensor([0.2, 0.5, 0.8], dtype=torch.float64)
         output = f"{operator}:\nInductor Speedups : {(torch.quantile(timings[0] / timings[1], q)).tolist()}\n"
         if measure_nvfuser:
