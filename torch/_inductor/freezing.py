@@ -4,7 +4,13 @@ from typing import List, Optional, Tuple
 
 import torch
 import torch.utils._pytree as pytree
+from torch import nn
+from torch._dynamo.utils import dynamo_timed
+from torch.fx.passes.shape_prop import _extract_tensor_metadata
+from torch.utils._mode_utils import no_dispatch
 from . import config
+
+aten = torch.ops.aten
 
 
 def replace_node_with_constant(gm, node, constant):
@@ -224,3 +230,36 @@ def discard_traced_gm_params(mod):
             e_t.requires_grad_(True)
             e_t._is_param = True
         setattr(mod, attr_name, e_t)
+
+
+@dynamo_timed
+def convert_conv_weights_to_channels_last(gm):
+    """
+    Convert 4d convolution weight tensor to channels last format.
+
+    This method assumes the graph is already freezed.
+    """
+    convs = [n for n in gm.graph.nodes if n.target == aten.convolution.default]
+    for conv in convs:
+        weight_node = conv.args[1]
+        # is a constant tensor
+        if weight_node.op == "get_attr":
+            param_tensor = getattr(gm, weight_node.target)
+            if len(param_tensor.shape) != 4:
+                # not a 4d tensor, skip
+                continue
+            with no_dispatch():
+                cl_param_tensor = param_tensor.to(memory_format=torch.channels_last)
+                if isinstance(param_tensor, nn.Parameter):
+                    cl_param_tensor = nn.Parameter(cl_param_tensor)
+            if cl_param_tensor is not param_tensor:
+                setattr(gm, weight_node.target, cl_param_tensor)
+
+                # Even though inductor does not use meta['val'] or meta['tensor_meta']
+                # for get_attr node, we still update them to be consistent.
+                weight_node.meta["val"] = weight_node.meta["val"].to(
+                    memory_format=torch.channels_last
+                )
+                weight_node.meta["tensor_meta"] = _extract_tensor_metadata(
+                    weight_node.meta["val"]
+                )

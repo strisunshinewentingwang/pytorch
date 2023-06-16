@@ -244,6 +244,7 @@ def compile_fx_inner(
     is_inference=False,
     boxed_forward_device_index=None,
     user_visible_outputs=frozenset(),
+    layout_opt=None,
 ):
     if is_tf32_warning_applicable(gm):
         _warn_tf32_disabled()
@@ -314,6 +315,7 @@ def compile_fx_inner(
             cpp_wrapper=cpp_wrapper,
             aot_mode=aot_mode,
             user_visible_outputs=user_visible_outputs,
+            layout_opt=layout_opt,
         )
         with V.set_graph_handler(graph):
             graph.run(*example_inputs)
@@ -674,7 +676,7 @@ def fw_compiler_freezing(
     graph_id,
     forward_device,
 ):
-    from torch._inductor.freezing import freeze
+    from torch._inductor.freezing import convert_conv_weights_to_channels_last, freeze
 
     # partition_fn won't be called
     joint_graph_passes(aot_autograd_model)
@@ -684,6 +686,9 @@ def fw_compiler_freezing(
         aot_autograd_model,
         fw_metadata=torch._guards.TracingContext.get().fw_metadata,
     )
+    layout_opt = GraphLowering.decide_layout_opt(aot_autograd_model)
+    if layout_opt:
+        convert_conv_weights_to_channels_last(aot_autograd_model)
 
     aot_example_inputs = [aot_example_inputs[ind] for ind in preserved_arg_indices]
     num_fixed = len(preserved_arg_indices) - num_example_inputs
@@ -700,6 +705,7 @@ def fw_compiler_freezing(
             graph_id=graph_id,
             is_inference=True,
             boxed_forward_device_index=forward_device,
+            layout_opt=layout_opt,
         )
 
     # Need to drop the args we have constant-ified.
@@ -821,12 +827,8 @@ def compile_fx(
                     orig_model_outputs_node.args
                 )
                 num_orig_model_outputs = len(orig_model_outputs)
-                original_output_start_index = model.meta.get(
-                    "original_output_start_index", 0
-                )
             else:
                 num_orig_model_outputs = num_model_outputs
-                original_output_start_index = 0
 
             assert num_orig_model_outputs <= num_model_outputs
 

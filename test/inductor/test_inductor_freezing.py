@@ -10,6 +10,7 @@ import weakref
 import torch
 
 import torch._dynamo
+from torch import nn
 from torch._inductor import config
 from torch._inductor.utils import run_and_get_code
 from torch.testing import FileCheck
@@ -228,6 +229,63 @@ class OptimizeForInferenceTemplate(TestCase):
 
         self.assertEqual(eager, compiled)
         self.assertTrue(weight_ref() is None)
+
+    def test_conv_weight_layout_convert(self):
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(
+                    3, 128, kernel_size=3, padding=1, stride=1, bias=False
+                )
+
+            def forward(self, x):
+                return self.conv(x)
+
+            @staticmethod
+            def get_example_inputs():
+                return (torch.rand(2, 3, 5, 5).to(self.device),)
+
+        from torch._inductor.compile_fx import compile_fx, compile_fx_inner
+
+        nconv = 0
+
+        def my_inner_compile(gm, example_inputs, *args, **kwargs):
+            out = compile_fx_inner(gm, example_inputs, *args, **kwargs)
+
+            nonlocal nconv
+            convs = [n for n in gm.graph.nodes if n.target == aten.convolution.default]
+            nconv += len(convs)
+            for conv in convs:
+                weight_node = conv.args[1]
+                weight_const_tensor = getattr(gm, weight_node.target)
+                self.assertTrue(
+                    weight_const_tensor.is_contiguous(memory_format=torch.channels_last)
+                )
+                self.assertTrue(
+                    weight_node.meta["val"].is_contiguous(
+                        memory_format=torch.channels_last
+                    )
+                )
+
+            return out
+
+        mod = torch.compile(
+            Model().eval().to(self.device),
+            backend=functools.partial(compile_fx, inner_compile=my_inner_compile),
+        )
+        inp = mod.get_example_inputs()
+        with torch.no_grad():
+            mod(*inp)
+
+        if self.device == "cuda":
+            self.assertTrue(nconv == 1)
+        else:
+            assert self.device == "cpu"
+            # For CPU, we get torch.ops.mkldnn._convolution_pointwise.default
+            # in the joint graph rather than torch.ops.aten.convolution.default.
+            # Currently we only handle aten.convolution.default in layout
+            # optimization. That's why the count is 0 here for CPU.
+            self.assertTrue(nconv == 0)
 
 
 if HAS_CPU and not torch.backends.mps.is_available():
