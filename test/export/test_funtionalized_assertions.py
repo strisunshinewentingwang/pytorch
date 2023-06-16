@@ -1,6 +1,9 @@
 # Owner(s): ["module: dynamo"]
 import torch
 from torch.testing._internal.common_utils import run_tests, TestCase
+from torch._export.constraints import constrain_as_size
+from torch._export.functionalize_assertions import functionalize
+from torch.testing import FileCheck
 
 
 class TestFuntionalAssertions(TestCase):
@@ -37,6 +40,48 @@ class TestFuntionalAssertions(TestCase):
             dep_token,
         )
 
+
+class TestFunctionalization(TestCase):
+    def test_functionalize_inline_contraints(self) -> None:
+        def f(x):
+            a = x.item()
+            constrain_as_size(a, 4, 7)
+            return torch.empty((a, 4))
+
+        ep = torch._export.export(f, (torch.tensor([7]),))
+        gm = ep.graph_module
+        FileCheck().check_count(
+            "torch.ops.aten.sym_constrain_range.default",
+            1,
+            exactly=True,
+        ).run(gm.code)
+
+        gm = functionalize(gm)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            r"_local_scalar_dense_default is outside of inline constraint \[4, 7\]",
+        ) as cm:
+            gm(torch.tensor([20]))
+
+        res, dep_token = gm((torch.tensor([5])))
+        self.assertEqual(res.shape, torch.Size([5, 4]))
+        self.assertEqual(dep_token.shape, torch.Size([0]))
+
+        FileCheck().check_count(
+            "torch.ops.aten.functional_sym_constrain_range", 1, exactly=True
+        ).run(gm.code)
+        FileCheck().check_count(
+            "torch.ops.aten.sym_constrain_range.default", 0, exactly=True
+        ).run(gm.code)
+
+        dep_token_node = next(n for n in gm.graph.nodes if n.name == "dep_token_4")
+        constrain_node = next(
+            n
+            for n in gm.graph.nodes
+            if n.target == torch.ops.aten.functional_sym_constrain_range
+        )
+        self.assertEqual(constrain_node.kwargs["dep_token"], dep_token_node)
 
 if __name__ == "__main__":
     run_tests()
