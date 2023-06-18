@@ -4866,6 +4866,52 @@ class TestSparseAny(TestCase):
             run_test(m, n, k, device, dtype)
 
 
+    @onlyCUDA
+    @unittest.skipIf(TEST_WITH_ROCM, "ROCm doesn't support CUTLASS")
+    @dtypes(torch.int8, torch.half)
+    def test_semi_structured_sparse_conversions(self, device, dtype):
+        from semi_structured_sparse_conversions import semi_structured_sparse_compress_2by4
+
+        def make_tensor(shape, dtype):
+            if dtype.is_complex:
+                return torch.zeros(shape, dtype=dtype)
+            elif dtype.is_floating_point:
+                x = torch.randn(shape, dtype=dtype) / 10
+                x[x == 0] = 1
+                return x
+            else:
+                x = torch.randint(-5, 5, shape, dtype=dtype)
+                x[x == 0] = 1
+                return x
+
+        def random_mask_choice():
+            choices = [
+                [1, 1, 0, 0],
+                [1, 0, 1, 0],
+                [1, 0, 0, 1],
+                [0, 1, 1, 0],
+                [0, 1, 0, 1],
+                [0, 0, 1, 1]
+            ]
+            i = random.randint(0, len(choices) - 1)
+            return choices[i]
+
+        def run_test(m, k, device, dtype):
+            mask_entries = [random_mask_choice() for i in range(m * (k // 4))]
+            mask = torch.tensor(mask_entries, dtype=torch.bool).view(m, k)
+            dense = make_tensor((m, k), dtype).masked_fill(~mask, 0).to(device)
+
+            sparse_ref, meta_ref = torch.ops.cutlass._semi_structured_sparse_compress_2by4_cutlass(dense)
+            sparse, meta = semi_structured_sparse_compress_2by4(dense)
+
+            torch.testing.assert_close(sparse, sparse_ref, rtol=0, atol=0)
+            torch.testing.assert_close(meta, meta_ref, rtol=0, atol=0)
+
+        for (m, k) in itertools.product(range(4), range(4)):
+            m = (m + 1) * 32
+            k = (k + 1) * 128
+            run_test(m, k, device, dtype)
+
     @onlyNativeDeviceTypes
     @suppress_warnings
     @ops(like_fns_with_sparse_support)
