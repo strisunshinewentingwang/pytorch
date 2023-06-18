@@ -162,6 +162,8 @@ def mps_ops_grad_modifier(ops):
 
     XPASSLIST_GRAD = {
         'nn.functional.pairwise_distance': [torch.float16],
+        # failed assertion `destination datatype must be fp32'
+        'nn.functional.conv1d': [torch.float16],
     }
 
     MACOS_13_3_XFAILLIST_GRAD = {
