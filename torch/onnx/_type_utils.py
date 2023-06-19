@@ -359,6 +359,11 @@ TORCH_DTYPE_TO_COMPATIBLE_ONNX_TYPE_STRINGS = {
     float: {"tensor(float16)", "tensor(float)", "tensor(double)"},
     bool: {"tensor(int32)", "tensor(int64)", "tensor(bool)"},
 }
+COMPLEX_TO_FLOAT = {
+    torch.complex32: torch.float16,
+    torch.complex64: torch.float32,
+    torch.complex128: torch.float64,  # NOTE: ORT doesn't support torch.float64
+}
 
 # NOTE: Belows are from torch/fx/node.py
 BaseArgumentTypes = Union[
